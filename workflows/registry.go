@@ -1,27 +1,28 @@
 package workflows
 
 import (
-	"github.com/indeedeng/iwf-golang-samples/workflows/engagement"
-	"github.com/indeedeng/iwf-golang-samples/workflows/microservices"
-	"github.com/indeedeng/iwf-golang-samples/workflows/moneytransfer"
-	"github.com/indeedeng/iwf-golang-samples/workflows/polling"
-	"github.com/indeedeng/iwf-golang-samples/workflows/service"
-	"github.com/indeedeng/iwf-golang-samples/workflows/subscription"
+	cluster "github.com/RejwankabirHamim/cadence-iwf-poc/workflows/kubevirt"
+	"github.com/RejwankabirHamim/cadence-iwf-poc/workflows/service"
 	"github.com/indeedeng/iwf-golang-sdk/iwf"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 var registry = iwf.NewRegistry()
 
 func init() {
+	cfg, err := config.GetConfig() // uses $HOME/.kube/config by default; set KUBECONFIG env for custom path
+	if err != nil {
+		panic("failed to get kubeconfig: " + err.Error())
+	}
+	k8sClient, err := client.New(cfg, client.Options{})
+	if err != nil {
+		panic("failed to create k8s client: " + err.Error())
+	}
+	svc := service.NewMyService(k8sClient)
 
-	svc := service.NewMyService()
-
-	err := registry.AddWorkflows(
-		subscription.NewSubscriptionWorkflow(svc),
-		engagement.NewEngagementWorkflow(svc),
-		microservices.NewMicroserviceOrchestrationWorkflow(svc),
-		moneytransfer.NewMoneyTransferWorkflow(svc),
-		polling.NewPollingWorkflow(svc),
+	err = registry.AddWorkflows(
+		cluster.NewKubevirtWorkflow(svc),
 	)
 	if err != nil {
 		panic(err)
