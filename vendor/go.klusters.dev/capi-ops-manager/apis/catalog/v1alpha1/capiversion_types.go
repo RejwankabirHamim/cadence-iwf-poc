@@ -24,28 +24,22 @@ import (
 type CapiVersionSpec struct {
 	CAPA CAPAVersionMatrix    `json:"capa"`
 	CAPG GenericVersionMatrix `json:"capg"`
+	CAPH GenericVersionMatrix `json:"caph"`
+	CAPK GenericVersionMatrix `json:"capk"`
 	CAPZ GenericVersionMatrix `json:"capz"`
 }
 
-type DockerMachine struct {
-	MachineType string `json:"type,omitempty"`
-	//+optional
-	MachineOS string `json:"os,omitempty"`
-}
-
 type GenericVersionMatrix struct {
-	Kind           string        `json:"kind"`
-	KindImage      string        `json:"kindImage"`
-	Clusterctl     string        `json:"clusterctl"`
-	Capi           string        `json:"capi"`
-	Infrastructure string        `json:"infrastructure"`
-	DockerMachine  DockerMachine `json:"dockerMachine,omitempty"`
+	DeployerImage         string `json:"deployerImage"`
+	GatewayAPIVersion     string `json:"gatewayAPIVersion"`
+	CertManagerVersion    string `json:"certManagerVersion"`
+	CapiVersion           string `json:"capiVersion"`
+	InfrastructureVersion string `json:"infrastructureVersion"`
 }
 
 type CAPAVersionMatrix struct {
 	GenericVersionMatrix `json:",inline"`
-	Clusterawsadm        string `json:"clusterawsadm"`
-	IAMAuthenticator     string `json:"iamAuthenticator"`
+	EBSCSIDriverVersion  string `json:"ebsCSIDriverVersion"`
 }
 
 // CapiVersionStatus defines the observed state of CapiVersion

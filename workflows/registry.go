@@ -19,7 +19,7 @@ func init() {
 	if err != nil {
 		panic("failed to create k8s client: " + err.Error())
 	}
-	svc := service.NewMyService(k8sClient)
+	svc := service.NewClusterCreateService(k8sClient)
 
 	err = registry.AddWorkflows(
 		cluster.NewKubevirtWorkflow(svc),

@@ -6,13 +6,10 @@ import (
 	"github.com/RejwankabirHamim/cadence-iwf-poc/workflows/service"
 	"github.com/go-logr/logr"
 	"github.com/indeedeng/iwf-golang-sdk/iwf"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
-	controllerruntime "sigs.k8s.io/controller-runtime"
 )
 
-func NewKubevirtWorkflow(svc service.MyService) iwf.ObjectWorkflow {
-
+func NewKubevirtWorkflow(svc service.ClusterCreateService) iwf.ObjectWorkflow {
 	return &KubevirtWorkflow{
 		svc: svc,
 	}
@@ -20,8 +17,14 @@ func NewKubevirtWorkflow(svc service.MyService) iwf.ObjectWorkflow {
 
 type KubevirtWorkflow struct {
 	iwf.WorkflowDefaults
+	svc service.ClusterCreateService
+}
 
-	svc service.MyService
+func (w KubevirtWorkflow) GetPersistenceSchema() []iwf.PersistenceFieldDef {
+	return []iwf.PersistenceFieldDef{
+		iwf.DataAttributeDef("nsname"),
+		iwf.DataAttributeDef("cleanup_reason"),
+	}
 }
 
 func (e KubevirtWorkflow) GetWorkflowStates() []iwf.StateDef {
@@ -36,11 +39,14 @@ func (e KubevirtWorkflow) GetWorkflowStates() []iwf.StateDef {
 
 type createNamespaceState struct {
 	iwf.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+	svc service.ClusterCreateService
 }
 
 func (i createNamespaceState) Execute(
-	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
+	ctx iwf.WorkflowContext,
+	input iwf.Object,
+	commandResults iwf.CommandResults,
+	persistence iwf.Persistence,
 	communication iwf.Communication,
 ) (*iwf.StateDecision, error) {
 	var operation common.KubeVirtCreateOperation
@@ -55,13 +61,12 @@ func (i createNamespaceState) Execute(
 		return nil, err
 	}
 	persistence.SetDataAttribute("nsname", nsname)
-	persistence.SetDataAttribute("operation", operation)
 	return iwf.SingleNextState(&createJobState{svc: i.svc}, input), nil
 }
 
 type createJobState struct {
 	iwf.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+	svc service.ClusterCreateService
 }
 
 func (i createJobState) Execute(
@@ -85,7 +90,7 @@ func (i createJobState) Execute(
 
 type clusterOperationSuccessfulCheckState struct {
 	iwf.WorkflowStateDefaultsNoWaitUntil
-	svc service.MyService
+	svc service.ClusterCreateService
 }
 
 func (i clusterOperationSuccessfulCheckState) Execute(
@@ -101,11 +106,62 @@ func (i clusterOperationSuccessfulCheckState) Execute(
 	var operation common.KubeVirtCreateOperation
 	input.Get(&operation)
 
-	if err := i.svc.IsClusterOperationSuccessful(ctx, nsname); err != nil {
+	if err := i.svc.WaitForClusterOperationToBeCompleted(ctx, nsname); err != nil {
 		logger.Error(err, "failed to create cluster")
-		return nil, err
+		persistence.SetDataAttribute("cleanup_reason", "failed")
+		return iwf.SingleNextState(&cleanupNamespaceState{svc: i.svc}, input), nil
 	}
 
 	logger.Info("Successfully Created Cluster")
+	persistence.SetDataAttribute("cleanup_reason", "success")
 	return iwf.SingleNextState(&syncCredentialState{svc: i.svc}, input), nil
+}
+
+type syncCredentialState struct {
+	iwf.WorkflowStateDefaultsNoWaitUntil
+	svc service.ClusterCreateService
+}
+
+func (i syncCredentialState) Execute(
+	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
+	communication iwf.Communication,
+) (*iwf.StateDecision, error) {
+	var nsname string
+	persistence.GetDataAttribute("nsname", &nsname)
+
+	var operation common.KubeVirtCreateOperation
+	input.Get(&operation)
+	kubeconfig := operation.KubeVirtCredential.KubeConfig
+	if err := i.svc.SyncCredential(ctx, kubeconfig, operation, nsname); err != nil {
+		return nil, fmt.Errorf("failed to sync credential: %v", err)
+	}
+
+	return iwf.SingleNextState(&cleanupNamespaceState{svc: i.svc}, input), nil
+}
+
+type cleanupNamespaceState struct {
+	iwf.WorkflowStateDefaultsNoWaitUntil
+	svc service.ClusterCreateService
+}
+
+func (i cleanupNamespaceState) Execute(
+	ctx iwf.WorkflowContext, input iwf.Object, commandResults iwf.CommandResults, persistence iwf.Persistence,
+	communication iwf.Communication,
+) (*iwf.StateDecision, error) {
+	logger := logr.FromContextOrDiscard(ctx)
+
+	var nsname string
+	persistence.GetDataAttribute("nsname", &nsname)
+	var reason string
+	persistence.GetDataAttribute("cleanup_reason", &reason)
+
+	if err := i.svc.CleanupNamespace(ctx, nsname); err != nil {
+		logger.Error(err, "failed to cleanup namespace")
+		return nil, err
+	}
+
+	if reason == "failed" {
+		return iwf.ForceFailWorkflow("Cluster creation failed, namespace cleaned up."), nil
+	}
+	return iwf.GracefulCompletingWorkflow, nil
 }
