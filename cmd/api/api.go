@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/RejwankabirHamim/cadence-iwf-poc/internal/persistence"
 	"github.com/RejwankabirHamim/cadence-iwf-poc/pkg/common"
 	"github.com/RejwankabirHamim/cadence-iwf-poc/workflows"
 	"github.com/RejwankabirHamim/cadence-iwf-poc/workflows/kubevirt"
@@ -43,7 +44,7 @@ func StartAPIServer(c *cli.Context) {
 	r := gin.Default()
 
 	r.POST("/api/v1/clouds/:owner/:provider/cluster", ProvisionClusterHandler)
-
+	r.GET("/workflow/:id/history", GetWorkflowHistoryHandler)
 	log.Println("API server running on :8080")
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start API server: %v", err)
@@ -117,4 +118,14 @@ func ProvisionCAPICluster(
 	}
 
 	return &providerOptions, nil
+}
+
+func GetWorkflowHistoryHandler(c *gin.Context) {
+	id := c.Param("id")
+	history := persistence.Get(id)
+	if len(history) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
+		return
+	}
+	c.JSON(http.StatusOK, history)
 }

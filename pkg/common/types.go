@@ -28,15 +28,7 @@ type KubeVirtCreateOperation struct {
 	KubeVirtCredential *v1alpha1.KubeVirtCredential
 	CAPIConfig         *configv1alpha1.CAPIClusterConfig
 	ImportOption       clustermodel.ImportOptions
-	Callbacks          Callbacks
 }
-
-type (
-	Callbacks struct {
-		OnClusterCreated net.URL `json:"onClusterCreated,omitempty"`
-		OnStateChanged   net.URL `json:"onStateChanged,omitempty"`
-	}
-)
 
 func (opt KubeVirtCreateOperation) GetBaseImage(ctx goctx.Context, kc client.Client) (string, error) {
 	capiVersion, err := presetlib.GetCAPIVersionInfo(ctx, kc, opt.GetCAPIConfig().KubernetesVersion)

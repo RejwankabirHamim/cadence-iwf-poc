@@ -2,11 +2,13 @@ package kubevirt
 
 import (
 	"fmt"
+	"github.com/RejwankabirHamim/cadence-iwf-poc/internal/persistence"
 	"github.com/RejwankabirHamim/cadence-iwf-poc/pkg/common"
 	"github.com/RejwankabirHamim/cadence-iwf-poc/workflows/service"
 	"github.com/go-logr/logr"
 	"github.com/indeedeng/iwf-golang-sdk/iwf"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"time"
 )
 
 func NewKubevirtWorkflow(svc service.ClusterCreateService) iwf.ObjectWorkflow {
@@ -34,7 +36,18 @@ func (e KubevirtWorkflow) GetWorkflowStates() []iwf.StateDef {
 		iwf.NonStartingStateDef(&clusterOperationSuccessfulCheckState{svc: e.svc}),
 		iwf.NonStartingStateDef(&syncCredentialState{svc: e.svc}),
 		iwf.NonStartingStateDef(&cleanupNamespaceState{svc: e.svc}),
+		iwf.NonStartingStateDef(&waitForeverState{}),
 	}
+}
+
+func reportStateStatus(ctx iwf.WorkflowContext, stateName string, status string, data map[string]interface{}) {
+	workflowID := ctx.GetWorkflowId()
+	persistence.Save(workflowID, persistence.StateStatus{
+		WorkflowID: workflowID,
+		StateName:  stateName,
+		Status:     status,
+		Data:       data,
+	})
 }
 
 type createNamespaceState struct {
@@ -56,11 +69,12 @@ func (i createNamespaceState) Execute(
 	logger := logr.FromContextOrDiscard(ctx)
 	logger.Info(fmt.Sprintf("Creating Namespace: (%s)", nsname))
 
-	err := i.svc.CreateNamespace(ctx, nsname)
-	if err != nil {
+	if err := i.svc.CreateNamespace(ctx, nsname); err != nil {
+		reportStateStatus(ctx, "createNamespaceState", "failed", map[string]interface{}{"error": err.Error()})
 		return nil, err
 	}
 	persistence.SetDataAttribute("nsname", nsname)
+	reportStateStatus(ctx, "createNamespaceState", "success", map[string]interface{}{"nsname": nsname})
 	return iwf.SingleNextState(&createJobState{svc: i.svc}, input), nil
 }
 
@@ -81,10 +95,11 @@ func (i createJobState) Execute(
 
 	var operation common.KubeVirtCreateOperation
 	input.Get(&operation)
-	err := i.svc.CreateJob(ctx, operation, nsname)
-	if err != nil {
+	if err := i.svc.CreateJob(ctx, operation, nsname); err != nil {
+		reportStateStatus(ctx, "createJobState", "failed", map[string]interface{}{"error": err.Error()})
 		return nil, err
 	}
+	reportStateStatus(ctx, "createJobState", "success", map[string]interface{}{"nsname": nsname})
 	return iwf.SingleNextState(&clusterOperationSuccessfulCheckState{svc: i.svc}, input), nil
 }
 
@@ -109,11 +124,13 @@ func (i clusterOperationSuccessfulCheckState) Execute(
 	if err := i.svc.WaitForClusterOperationToBeCompleted(ctx, nsname); err != nil {
 		logger.Error(err, "failed to create cluster")
 		persistence.SetDataAttribute("cleanup_reason", "failed")
+		reportStateStatus(ctx, "clusterOperationCheck", "failed", map[string]interface{}{"error": err.Error()})
 		return iwf.SingleNextState(&cleanupNamespaceState{svc: i.svc}, input), nil
 	}
 
 	logger.Info("Successfully Created Cluster")
 	persistence.SetDataAttribute("cleanup_reason", "success")
+	reportStateStatus(ctx, "clusterOperationCheck", "success", map[string]interface{}{"nsname": nsname})
 	return iwf.SingleNextState(&syncCredentialState{svc: i.svc}, input), nil
 }
 
@@ -133,9 +150,10 @@ func (i syncCredentialState) Execute(
 	input.Get(&operation)
 	kubeconfig := operation.KubeVirtCredential.KubeConfig
 	if err := i.svc.SyncCredential(ctx, kubeconfig, operation, nsname); err != nil {
+		reportStateStatus(ctx, "syncCredentialState", "failed", map[string]interface{}{"error": err.Error()})
 		return nil, fmt.Errorf("failed to sync credential: %v", err)
 	}
-
+	reportStateStatus(ctx, "syncCredentialState", "success", map[string]interface{}{"nsname": nsname})
 	return iwf.SingleNextState(&cleanupNamespaceState{svc: i.svc}, input), nil
 }
 
@@ -157,11 +175,33 @@ func (i cleanupNamespaceState) Execute(
 
 	if err := i.svc.CleanupNamespace(ctx, nsname); err != nil {
 		logger.Error(err, "failed to cleanup namespace")
+		reportStateStatus(ctx, "cleanupNamespaceState", "failed", map[string]interface{}{"error": err.Error()})
 		return nil, err
 	}
-
+	reportStateStatus(ctx, "cleanupNamespaceState", reason, map[string]interface{}{"nsname": nsname})
 	if reason == "failed" {
 		return iwf.ForceFailWorkflow("Cluster creation failed, namespace cleaned up."), nil
 	}
+	return iwf.SingleNextState(&waitForeverState{}, input), nil
+}
+
+type waitForeverState struct {
+	iwf.WorkflowStateDefaultsNoWaitUntil
+}
+
+func (s waitForeverState) Execute(
+	ctx iwf.WorkflowContext,
+	input iwf.Object,
+	commandResults iwf.CommandResults,
+	persistence iwf.Persistence,
+	communication iwf.Communication,
+) (*iwf.StateDecision, error) {
+	reportStateStatus(ctx, "waitForeverState", "running", nil)
+	for {
+		time.Sleep(24 * time.Hour)
+	}
 	return iwf.GracefulCompletingWorkflow, nil
 }
+
+// input object dibo.
+// sleep dibo. completion hobena.
