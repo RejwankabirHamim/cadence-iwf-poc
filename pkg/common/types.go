@@ -12,30 +12,62 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cu "kmodules.xyz/client-go/client"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	presetlib "go.bytebuilders.dev/cluster-presets/pkg/cloudproviders/utils"
-	"go.bytebuilders.dev/resource-model/apis/cloud/v1alpha1"
-	clustermodel "go.bytebuilders.dev/resource-model/apis/cluster"
-	configv1alpha1 "go.bytebuilders.dev/resource-model/apis/config/v1alpha1"
 )
 
+type ProviderOptions struct {
+	Name          string `json:"name"`
+	Credential    string `json:"credential,omitempty"`
+	ClusterID     string `json:"clusterID,omitempty"`
+	Project       string `json:"project,omitempty"`
+	Region        string `json:"region,omitempty"`
+	ResourceGroup string `json:"resourceGroup,omitempty"`
+	KubeConfig    string `json:"kubeConfig,omitempty"`
+}
+
+type BasicInfo struct {
+	Name           string `json:"name"`
+	DisplayName    string `json:"displayName"`
+	OwnerID        int64  `json:"ownerID,omitempty"`
+	ManagerID      int64  `json:"managerID,omitempty"`
+	UserID         int64  `json:"userID,omitempty"`
+	ClusterUID     string `json:"clusterUID,omitempty"`
+	HubClusterID   string `json:"hubClusterID,omitempty"`
+	InfraNamespace string `json:"infraNamespace,omitempty"`
+}
+
+type ImportOptions struct {
+	BasicInfo BasicInfo       `json:"basicInfo,omitempty"`
+	Provider  ProviderOptions `json:"provider,omitempty"`
+}
+
+type MachinePool struct {
+	MachineType  string `json:"machineType"`
+	MachineCount int    `json:"machineCount"`
+	CPU          int    `json:"cpu"`
+	Memory       int    `json:"memory"`
+}
+type CAPIClusterConfig struct {
+	ClusterName       string        `json:"clusterName,omitempty"`
+	Region            string        `json:"region,omitempty"`
+	NetworkCIDR       string        `json:"networkCIDR,omitempty"`
+	KubernetesVersion string        `json:"kubernetesVersion,omitempty"`
+	GoogleProjectID   string        `json:"googleProjectID,omitempty"`
+	ControlPlane      *MachinePool  `json:"controlPlane,omitempty"`
+	WorkerPools       []MachinePool `json:"workerPools,omitempty"`
+}
 type ClusterProvisionConfig struct {
-	CAPIClusterConfig configv1alpha1.CAPIClusterConfig `json:"capiClusterConfig"`
-	ImportOptions     clustermodel.ImportOptions       `json:"importOptions"`
+	CAPIClusterConfig CAPIClusterConfig `json:"capiClusterConfig"`
+	ImportOptions     ImportOptions     `json:"importOptions"`
 }
 
 type KubeVirtCreateOperation struct {
-	KubeVirtCredential *v1alpha1.KubeVirtCredential
-	CAPIConfig         *configv1alpha1.CAPIClusterConfig
-	ImportOption       clustermodel.ImportOptions
+	KubeVirtCredential *KubeVirtCredential
+	CAPIConfig         *CAPIClusterConfig
+	ImportOption       ImportOptions
 }
 
 func (opt KubeVirtCreateOperation) GetBaseImage(ctx goctx.Context, kc client.Client) (string, error) {
-	capiVersion, err := presetlib.GetCAPIVersionInfo(ctx, kc, opt.GetCAPIConfig().KubernetesVersion)
-	if err != nil {
-		return "", err
-	}
-	return capiVersion.Spec.CAPK.DeployerImage, nil
+	return "", nil
 }
 
 func (opt KubeVirtCreateOperation) CreateScriptSecret(ctx goctx.Context, kc client.Client, scriptSecretName string) error {
@@ -46,10 +78,6 @@ func (opt KubeVirtCreateOperation) CreateScriptSecret(ctx goctx.Context, kc clie
 	} else {
 		scriptTemplate, err = template.ParseFS(tplfiles.FS, "capi/kubevirt-create.sh")
 	}
-	if err != nil {
-		return err
-	}
-	capiVersion, err := presetlib.GetCAPIVersionInfo(ctx, kc, opt.GetCAPIConfig().KubernetesVersion)
 	if err != nil {
 		return err
 	}
@@ -69,9 +97,6 @@ func (opt KubeVirtCreateOperation) CreateScriptSecret(ctx goctx.Context, kc clie
 		scriptData["controlplane_machine_count"] = opt.CAPIConfig.ControlPlane.MachineCount
 		scriptData["controlplane_machine_cpu"] = opt.CAPIConfig.ControlPlane.CPU
 		scriptData["controlplane_machine_memory"] = opt.CAPIConfig.ControlPlane.Memory
-
-		scriptData["gateway_api_version"] = capiVersion.Spec.CAPK.GatewayAPIVersion
-		scriptData["cert_manager_version"] = capiVersion.Spec.CAPK.CertManagerVersion
 	}
 
 	var script bytes.Buffer
@@ -86,7 +111,7 @@ func (opt KubeVirtCreateOperation) CreateScriptSecret(ctx goctx.Context, kc clie
 	return nil
 }
 
-func (opt KubeVirtCreateOperation) GetCAPIConfig() *configv1alpha1.CAPIClusterConfig {
+func (opt KubeVirtCreateOperation) GetCAPIConfig() *CAPIClusterConfig {
 	return opt.CAPIConfig
 }
 

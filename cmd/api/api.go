@@ -10,15 +10,12 @@ import (
 	"github.com/RejwankabirHamim/cadence-iwf-poc/workflows/kubevirt"
 	"github.com/indeedeng/iwf-golang-sdk/iwf"
 	"github.com/urfave/cli"
-	"go.bytebuilders.dev/resource-model/apis/cloud/v1alpha1"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	clustermodel "go.bytebuilders.dev/resource-model/apis/cluster"
 )
 
 const providerKubevirt = "kubevirt"
@@ -63,7 +60,7 @@ func ProvisionClusterHandler(c *gin.Context) {
 		return
 	}
 
-	var cred *v1alpha1.CredentialSpec
+	var cred *common.CredentialSpec
 
 	providerOpts, err := ProvisionCAPICluster(c.Request.Context(), cred, params, cloudProvider)
 	if err != nil {
@@ -76,13 +73,13 @@ func ProvisionClusterHandler(c *gin.Context) {
 
 func ProvisionCAPICluster(
 	ctx context.Context,
-	cred *v1alpha1.CredentialSpec,
+	cred *common.CredentialSpec,
 	params common.ClusterProvisionConfig,
 	providerName string,
-) (*clustermodel.ProviderOptions, error) {
+) (*common.ProviderOptions, error) {
 	fmt.Printf("Provision capi cluster params: %+v\n", params)
 
-	providerOptions := clustermodel.ProviderOptions{}
+	providerOptions := common.ProviderOptions{}
 	providerOptions.Name = strings.ToUpper(providerName)
 	providerOptions.Region = params.CAPIClusterConfig.Region
 	providerOptions.ClusterID = params.CAPIClusterConfig.ClusterName
